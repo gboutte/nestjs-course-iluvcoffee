@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto';
 import { Coffee } from './entities/coffee.entity';
+import { Flavor } from './entities/flavor.entity';
 
 @Injectable()
 export class CoffeesService {
@@ -11,6 +12,8 @@ export class CoffeesService {
       constructor(
         @InjectRepository(Coffee)
         private readonly coffeeRepository: Repository<Coffee>,
+        @InjectRepository(Flavor)
+        private readonly flavorRepository: Repository<Flavor>,
       ) {}
     
       /**
@@ -50,8 +53,18 @@ export class CoffeesService {
        * @param createCoffeeDto the Object that represent the coffee that will be created inside database
        * @returns Coffee
        */
-      create(createCoffeeDto: CreateCoffeeDto) {
-        const coffee = this.coffeeRepository.create(createCoffeeDto);
+       async create(createCoffeeDto: CreateCoffeeDto) {
+
+        // Loading all flavors to add them later inside the coffee
+        // If they doesn't exist they will be created by the preloadFlavorByName method
+        const flavors = await Promise.all(
+          createCoffeeDto.flavors.map(name => this.preloadFlavorByName(name)),
+        );
+    
+        const coffee = this.coffeeRepository.create({
+          ...createCoffeeDto,
+          flavors, 
+        });
         return this.coffeeRepository.save(coffee);
       }
     
@@ -61,16 +74,27 @@ export class CoffeesService {
        * @param updateCoffeeDto The data to apply on the object
        * @returns Coffee
        */
-      async update(id: string, updateCoffeeDto: UpdateCoffeeDto) {
+       async update(id: string, updateCoffeeDto: UpdateCoffeeDto) {
+
+        // Loading all flavors if defined inside DTO
+        // Not found flavors will be created by preloadFlavorByName method
+        const flavors =
+          updateCoffeeDto.flavors &&
+          (await Promise.all(
+            updateCoffeeDto.flavors.map(name => this.preloadFlavorByName(name)),
+          ));
+    
         const coffee = await this.coffeeRepository.preload({
           id: +id,
           ...updateCoffeeDto,
+          flavors, // Flavors added to the patch
         });
         if (!coffee) {
           throw new NotFoundException(`Coffee #${id} not found`);
         }
         return this.coffeeRepository.save(coffee);
       }
+    
     
       /**
        * Delete a row of coffee inside the database
@@ -80,5 +104,24 @@ export class CoffeesService {
       async remove(id: string) {
         const coffee = await this.findOne(id);
         return this.coffeeRepository.remove(coffee);
+      }
+
+      /**
+       * It find the flavor by its name, if it doesn't exist it create it
+       * @param name the name of the flavor
+       * @returns Flavor
+       */
+      private async preloadFlavorByName(name: string): Promise<Flavor> {
+        //Looking for the flavor inside the database
+        const existingFlavor = await this.flavorRepository.findOne({ where: {
+          name
+         }, });
+
+         //If found return it
+        if (existingFlavor) {
+          return existingFlavor;
+        }
+        // If not found then create it and return it
+        return this.flavorRepository.create({ name });
       }
 }
