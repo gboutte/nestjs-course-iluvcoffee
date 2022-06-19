@@ -19,4 +19,7 @@ export class Coffee {
       }
     )
     flavors: Flavor[];
+
+    @Column({default:0})
+    recommendations:number;
   }
